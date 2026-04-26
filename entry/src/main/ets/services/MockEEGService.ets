@@ -4,6 +4,7 @@
  *
  * This is a temporary service until actual hardware (EEG wearable) is integrated.
  */
+import { SAMPLING_RATE, SAMPLE_INTERVAL_MS, SERVICE_BUFFER_SIZE } from '../constants/AppConstants';
 
 export interface EEGDataPoint {
   timestamp: number;
@@ -17,7 +18,7 @@ export enum EEGSimulationMode {
   SEIZURE = 'SEIZURE' // High-amplitude spikes (>200 µV)
 }
 
-interface GeneratedTypeLiteralInterface_1 {
+export interface EEGDataStatistics {
   meanAmplitude: number;
   maxAmplitude: number;
   minAmplitude: number;
@@ -25,14 +26,10 @@ interface GeneratedTypeLiteralInterface_1 {
 }
 
 export class MockEEGService {
-  private simulationMode: EEGSimulationMode = EEGSimulationMode.NORMAL;
+  private simulationMode: EEGSimulationMode = EEGSimulationMode.MODERATE;
   private isRunning: boolean = false;
   private streamInterval: number | null = null;
   private dataBuffer: EEGDataPoint[] = [];
-  private bufferSize: number = 1000; // Keep last 1000 data points
-
-  private readonly SAMPLING_RATE = 250;
-  private readonly SAMPLE_INTERVAL = 1000 / this.SAMPLING_RATE; // ~4ms per sample
 
   private onDataReceivedCallback: ((data: EEGDataPoint) => void) | null = null;
   private onModeChangedCallback: ((mode: EEGSimulationMode) => void) | null = null;
@@ -62,14 +59,14 @@ export class MockEEGService {
       const dataPoint = this.generateEEGDataPoint();
       this.dataBuffer.push(dataPoint);
 
-      if (this.dataBuffer.length > this.bufferSize) {
+      if (this.dataBuffer.length > SERVICE_BUFFER_SIZE) {
         this.dataBuffer.shift();
       }
 
       if (this.onDataReceivedCallback) {
         this.onDataReceivedCallback(dataPoint);
       }
-    }, this.SAMPLE_INTERVAL);
+    }, SAMPLE_INTERVAL_MS);
   }
 
   public stopStream(): void {
@@ -109,7 +106,7 @@ export class MockEEGService {
     return [...this.dataBuffer];
   }
 
-  public getDataStatistics(): GeneratedTypeLiteralInterface_1 {
+  public getDataStatistics(): EEGDataStatistics {
     if (this.dataBuffer.length === 0) {
       return {
         meanAmplitude: 0,

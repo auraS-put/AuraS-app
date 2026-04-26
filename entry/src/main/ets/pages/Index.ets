@@ -1,224 +1,94 @@
 import { EEGRiskViewModel, getEEGRiskViewModel, RiskLevel } from '../viewmodel/EEGRiskViewModel';
-import { EEGSimulationMode } from '../services/MockEEGService';
+import { getStatusText, riskLevelToSimulationMode } from '../utils/RiskLevelUtils';
+import {
+  COLOR_BACKGROUND, COLOR_TITLE, COLOR_STATUS_TEXT,
+  WAVEFORM_UPDATE_INTERVAL_MS, WAVEFORM_MAX_POINTS,
+  ANIM_START_DELAY_MS
+} from '../constants/AppConstants';
+import { GlowingOrb } from '../components/GlowingOrb';
+import { SafetyConfirmation } from '../components/SafetyConfirmation';
+import { EEGWaveformChart } from '../components/EEGWaveformChart';
 
-// Debug override for quick UI testing from this file.
-// Set to RiskLevel.GREEN / RiskLevel.ORANGE / RiskLevel.RED, or null to disable override.
-const DEBUG_FORCE_EEG_STATE: RiskLevel | null = RiskLevel.GREEN;
+const DEBUG_FORCE_EEG_STATE: RiskLevel | null = RiskLevel.RED;
 
 @Entry
 @ComponentV2
 struct Index {
   @Local private viewModel: EEGRiskViewModel = getEEGRiskViewModel();
-  @Local private riskLevel: RiskLevel = RiskLevel.GREEN;
-  @Local private isSafeConfirmed: boolean = false;
+  @Local private riskLevel: RiskLevel = DEBUG_FORCE_EEG_STATE ?? RiskLevel.RED;
+  @Local private waveformData: number[] = [];
+  @Local private animStarted: boolean = false;
+  private waveformTimer: number | null = null;
 
   aboutToAppear(): void {
     this.riskLevel = this.viewModel.getRiskLevel();
     this.viewModel.onRiskLevelChanged((level: RiskLevel) => {
       this.riskLevel = level;
-      if (level !== RiskLevel.RED) {
-        this.isSafeConfirmed = false;
-      }
     });
     this.applyDebugStateOverride();
     this.viewModel.startMonitoring();
+    this.waveformTimer = setInterval(() => {
+      this.waveformData = this.viewModel.getWaveformData(WAVEFORM_MAX_POINTS);
+    }, WAVEFORM_UPDATE_INTERVAL_MS);
+    setTimeout(() => {
+      this.animStarted = true;
+    }, ANIM_START_DELAY_MS);
   }
 
   aboutToDisappear(): void {
-    this.viewModel.onRiskLevelChanged(() => {
-    });
+    this.viewModel.onRiskLevelChanged(() => {});
     this.viewModel.stopMonitoring();
+    if (this.waveformTimer !== null) {
+      clearInterval(this.waveformTimer);
+      this.waveformTimer = null;
+    }
   }
 
   private applyDebugStateOverride(): void {
     if (DEBUG_FORCE_EEG_STATE === null) {
       return;
     }
-
-    let forcedMode: EEGSimulationMode = EEGSimulationMode.NORMAL;
-    switch (DEBUG_FORCE_EEG_STATE) {
-      case RiskLevel.GREEN:
-        forcedMode = EEGSimulationMode.NORMAL;
-        break;
-      case RiskLevel.ORANGE:
-        forcedMode = EEGSimulationMode.MODERATE;
-        break;
-      case RiskLevel.RED:
-        forcedMode = EEGSimulationMode.SEIZURE;
-        break;
-      default:
-        forcedMode = EEGSimulationMode.NORMAL;
-    }
-
-    this.viewModel.setSimulationMode(forcedMode);
+    this.viewModel.setSimulationMode(riskLevelToSimulationMode(DEBUG_FORCE_EEG_STATE));
     this.viewModel.clearBuffers();
   }
 
-  private ringMainColor(): string {
-    switch (this.riskLevel) {
-      case RiskLevel.GREEN:
-        return '#6EC49A';
-      case RiskLevel.ORANGE:
-        return '#E8BC7A';
-      case RiskLevel.RED:
-        return '#E2A6A6';
-      default:
-        return '#6EC49A';
-    }
-  }
-
-  private statusHeadline(): string {
-    switch (this.riskLevel) {
-      case RiskLevel.GREEN:
-        return 'Calm';
-      case RiskLevel.ORANGE:
-        return 'Watchful';
-      case RiskLevel.RED:
-        return 'Attention';
-      default:
-        return 'Calm';
-    }
-  }
-
-  private statusCaption(): string {
-    switch (this.riskLevel) {
-      case RiskLevel.GREEN:
-        return 'Stable neural rhythm with low variance.';
-      case RiskLevel.ORANGE:
-        return 'Mild irregular activity; continue close observation.';
-      case RiskLevel.RED:
-        return 'Persistent high-risk signature; safety confirmation protocol active.';
-      default:
-        return 'Stable neural rhythm with low variance.';
-    }
-  }
-
-  private specialistInfo(): string {
-    const metrics = this.viewModel.getMetrics();
-    const currentAmplitude = Math.round(Math.abs(metrics.currentAmplitude) * 10) / 10;
-    const anomalyCount = metrics.anomalyCount;
-
-    switch (this.riskLevel) {
-      case RiskLevel.GREEN:
-        return `Amplitude ${currentAmplitude} uV, no destabilizing pattern in current window.`;
-      case RiskLevel.ORANGE:
-        return `Amplitude ${currentAmplitude} uV, ${anomalyCount} irregular events detected; enhanced observation advised.`;
-      case RiskLevel.RED:
-        return `Amplitude ${currentAmplitude} uV, sustained high-risk markers detected; patient safety protocol is active.`;
-      default:
-        return `Amplitude ${currentAmplitude} uV, monitoring in progress.`;
-    }
-  }
-
   build() {
-    Column({ space: 0 }) {
-      Stack({ alignContent: Alignment.Top }) {
-        Row() {}
-          .width(620)
-          .height(620)
-          .borderRadius(310)
-          .backgroundColor(this.ringMainColor())
-          .opacity(0.025)
-          .margin({ top: -500 })
+    Column() {
+      // App title
+      Text('auras')
+        .fontSize(16)
+        .fontColor(COLOR_TITLE)
+        .fontWeight(FontWeight.Medium)
+        .margin({ top: 48 })
+        .letterSpacing(2)
 
-        Row() {}
-          .width(560)
-          .height(560)
-          .borderRadius(280)
-          .backgroundColor(this.ringMainColor())
-          .opacity(0.04)
-          .margin({ top: -470 })
+      // Glowing orb area
+      GlowingOrb({ riskLevel: this.riskLevel, animStarted: this.animStarted })
+        .margin({ top: 40 })
 
-        Row() {}
-          .width(500)
-          .height(500)
-          .borderRadius(250)
-          .backgroundColor(this.ringMainColor())
-          .opacity(0.06)
-          .margin({ top: -440 })
-
-        Row() {}
-          .width(450)
-          .height(450)
-          .borderRadius(225)
-          .border({ width: 3, color: this.ringMainColor() })
-          .opacity(0.2)
-          .margin({ top: -415 })
-
-        Row() {}
-          .width(410)
-          .height(410)
-          .borderRadius(205)
-          .border({ width: 8, color: this.ringMainColor() })
-          .opacity(0.35)
-          .margin({ top: -395 })
-      }
-      .width('100%')
-      .height(225)
-      .margin({ top: -8 })
-
-      Column({ space: 8 }) {
-        Text(this.statusHeadline())
-          .fontSize(40)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#1F2937')
-
-        Text(this.statusCaption())
-          .fontSize(13)
-          .fontColor('#5F6B7A')
-          .textAlign(TextAlign.Center)
-          .maxLines(2)
-      }
-      .width('88%')
-      .alignItems(HorizontalAlign.Center)
-      .margin({ top: 6 })
-
-      Column({ space: 6 }) {
-        Text('Additional information')
-          .fontSize(12)
-          .fontWeight(FontWeight.Medium)
-          .fontColor('#7A8494')
-
-        Text(this.specialistInfo())
-          .fontSize(12)
-          .fontColor('#4B5563')
-          .textAlign(TextAlign.Center)
-          .maxLines(3)
-      }
-      .width('88%')
-      .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-      .backgroundColor('#F8FAFC')
-      .borderRadius(16)
-      .margin({ top: 14 })
+      // Status text
+      Text(getStatusText(this.riskLevel))
+        .fontSize(22)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(COLOR_STATUS_TEXT)
+        .margin({ top: 28 })
 
       if (this.riskLevel === RiskLevel.RED) {
-        Button("I'm Safe")
-          .type(ButtonType.Capsule)
-          .fontSize(16)
-          .fontWeight(FontWeight.Bold)
-          .width('84%')
-          .height(50)
-          .backgroundColor('#1A8A7E')
-          .fontColor('#FFFFFF')
-          .margin({ top: 18 })
-          .onClick(() => {
-            this.isSafeConfirmed = true;
-          });
+        SafetyConfirmation()
       }
 
-      if (this.riskLevel === RiskLevel.RED && this.isSafeConfirmed) {
-        Text('Safety confirmation recorded')
-          .fontSize(13)
-          .fontColor('#1A8A7E')
-          .fontWeight(FontWeight.Medium)
-          .margin({ top: 8 });
-      }
+      // Spacer
+      Column() {}
+        .layoutWeight(1)
+
+      // EEG waveform
+      EEGWaveformChart({ riskLevel: this.riskLevel, waveformData: this.waveformData })
+        .margin({ bottom: 32 })
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FFFFFF')
-    .padding({ top: 0, left: 16, right: 16, bottom: 24 })
+    .backgroundColor(COLOR_BACKGROUND)
     .justifyContent(FlexAlign.Start)
-    .alignItems(HorizontalAlign.Center);
+    .alignItems(HorizontalAlign.Center)
   }
 }

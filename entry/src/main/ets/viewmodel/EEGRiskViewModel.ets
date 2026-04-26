@@ -3,6 +3,16 @@
 // Current risk levels are based on simplified thresholds for demonstration purposes. In a real application,
 // these would be determined by AI algorithms and clinical data
 import { EEGDataPoint, EEGSimulationMode, getMockEEGService, MockEEGService } from "../services/MockEEGService";
+import {
+  ANALYSIS_WINDOW_SIZE,
+  ANOMALY_THRESHOLD_UV,
+  THRESHOLD_ORANGE_MIN_UV,
+  THRESHOLD_RED_MIN_UV,
+  THRESHOLD_RED_MAX_UV,
+  ANOMALY_RATE_ORANGE,
+  ANOMALY_RATE_RED,
+  WAVEFORM_MAX_POINTS
+} from '../constants/AppConstants';
 
 export enum RiskLevel {
   GREEN = 'GREEN',    // Very low risk - normal brain activity
@@ -25,16 +35,7 @@ export class EEGRiskViewModel {
   
   @Trace metrics: EEGMetrics = new EEGMetrics();
   
-  private analysisWindowSize: number = 250; // 1 second of data at 250 Hz
   private recentDataBuffer: EEGDataPoint[] = [];
-  
-  private readonly ANOMALY_THRESHOLD_UV = 100; // µV above which a spike is considered anomalous
-  
-  private readonly THRESHOLD_ORANGE_MIN = 50;   // µV
-  private readonly THRESHOLD_RED_MIN = 100;     // µV
-  private readonly THRESHOLD_RED_MAX = 150;     // µV (peak amplitude)
-  private readonly ANOMALY_RATE_ORANGE = 0.05; // 5%
-  private readonly ANOMALY_RATE_RED = 0.20;    // 20%
   
   private eegService: MockEEGService;
   
@@ -60,7 +61,7 @@ export class EEGRiskViewModel {
   private onEEGDataReceived(dataPoint: EEGDataPoint): void {
     this.recentDataBuffer.push(dataPoint);
 
-    if (this.recentDataBuffer.length > this.analysisWindowSize) {
+    if (this.recentDataBuffer.length > ANALYSIS_WINDOW_SIZE) {
       this.recentDataBuffer.shift();
     }
 
@@ -94,7 +95,7 @@ export class EEGRiskViewModel {
 
   private countAnomalies(): number {
     return this.recentDataBuffer.filter(
-      point => Math.abs(point.amplitude) > this.ANOMALY_THRESHOLD_UV
+      point => Math.abs(point.amplitude) > ANOMALY_THRESHOLD_UV
     ).length;
   }
 
@@ -108,16 +109,16 @@ export class EEGRiskViewModel {
     const anomalyRate = this.metrics.anomalyCount / this.recentDataBuffer.length;
 
     if (
-      meanAmplitude > this.THRESHOLD_RED_MIN ||
-      maxAmplitude > this.THRESHOLD_RED_MAX ||
-      anomalyRate > this.ANOMALY_RATE_RED
+      meanAmplitude > THRESHOLD_RED_MIN_UV ||
+      maxAmplitude > THRESHOLD_RED_MAX_UV ||
+      anomalyRate > ANOMALY_RATE_RED
     ) {
       return RiskLevel.RED;
     }
 
     if (
-      meanAmplitude > this.THRESHOLD_ORANGE_MIN ||
-      anomalyRate > this.ANOMALY_RATE_ORANGE
+      meanAmplitude > THRESHOLD_ORANGE_MIN_UV ||
+      anomalyRate > ANOMALY_RATE_ORANGE
     ) {
       return RiskLevel.ORANGE;
     }
@@ -165,6 +166,22 @@ export class EEGRiskViewModel {
 
   public getSimulationMode(): EEGSimulationMode {
     return this.eegService.getCurrentMode();
+  }
+
+  public getWaveformData(maxPoints: number = WAVEFORM_MAX_POINTS): number[] {
+    if (this.recentDataBuffer.length === 0) {
+      return [];
+    }
+    const buffer = this.recentDataBuffer;
+    if (buffer.length <= maxPoints) {
+      return buffer.map((p: EEGDataPoint) => p.amplitude);
+    }
+    const step = buffer.length / maxPoints;
+    const result: number[] = [];
+    for (let i = 0; i < maxPoints; i++) {
+      result.push(buffer[Math.floor(i * step)].amplitude);
+    }
+    return result;
   }
 
   public clearBuffers(): void {
