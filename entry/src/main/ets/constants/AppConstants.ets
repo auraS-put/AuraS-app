@@ -4,19 +4,32 @@
 
 // ── EEG Sampling ────────────────────────────────────────────────────────────
 
-export const SAMPLING_RATE: number = 250;
+export const SAMPLING_RATE: number = 256;
 export const SAMPLE_INTERVAL_MS: number = 1000 / SAMPLING_RATE;
-export const SERVICE_BUFFER_SIZE: number = 1000;
-export const ANALYSIS_WINDOW_SIZE: number = 250;
+export const SERVICE_BUFFER_SIZE: number = 2048;
+export const ANALYSIS_WINDOW_SIZE: number = 256;
 
-// ── Risk Level Thresholds ───────────────────────────────────────────────────
+// ── EEG Channel Configuration ───────────────────────────────────────────────
 
-export const ANOMALY_THRESHOLD_UV: number = 100;
-export const THRESHOLD_ORANGE_MIN_UV: number = 50;
-export const THRESHOLD_RED_MIN_UV: number = 100;
-export const THRESHOLD_RED_MAX_UV: number = 150;
-export const ANOMALY_RATE_ORANGE: number = 0.05;
-export const ANOMALY_RATE_RED: number = 0.20;
+export const EEG_CHANNEL_COUNT: number = 4;
+export const EEG_CHANNEL_NAMES: string[] = ['AF7', 'AF8', 'TP9', 'TP10'];
+
+// ── AI Model Configuration ──────────────────────────────────────────────────
+
+export const MODEL_FILE_NAME: string = 'ultralight_cnn.ms';
+export const MODEL_WINDOW_SIZE: number = 1024;
+export const MODEL_STRIDE: number = 256;
+export const MODEL_INPUT_CHANNELS: number = 4;
+export const MODEL_INFERENCE_INTERVAL_MS: number = 1000;
+export const SEIZURE_PROBABILITY_THRESHOLD: number = 0.5;
+export const SEIZURE_PROB_ORANGE_THRESHOLD: number = 0.3;
+
+// ── Preprocessing Configuration ─────────────────────────────────────────────
+
+export const NOTCH_FREQUENCY_HZ: number = 50;
+export const BANDPASS_LOW_HZ: number = 0.5;
+export const BANDPASS_HIGH_HZ: number = 45;
+export const FILTER_ORDER: number = 2;
 
 // ── Risk Level Colors ───────────────────────────────────────────────────────
 
@@ -37,6 +50,15 @@ export const COLOR_ORB_CENTER: string = '#FFFFFF';
 
 export const WAVEFORM_UPDATE_INTERVAL_MS: number = 100;
 export const WAVEFORM_MAX_POINTS: number = 200;
+
+// ── Debug Presentation Scenario ─────────────────────────────────────────
+
+export const DEBUG_RAMP_UP_MS: number = 15000;
+export const DEBUG_HOLD_MS: number = 60000;
+export const DEBUG_RAMP_DOWN_MS: number = 15000;
+export const DEBUG_GREEN_CENTER: number = 0.12;
+export const DEBUG_ORANGE_CENTER: number = 0.38;
+export const DEBUG_RED_CENTER: number = 0.68;
 
 // ── Orb Animation ───────────────────────────────────────────────────────────
 

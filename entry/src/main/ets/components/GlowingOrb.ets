@@ -18,6 +18,7 @@ export struct GlowingOrb {
           .height(ring.size)
           .borderRadius(ring.size / 2)
           .backgroundColor(getGlowColor(this.riskLevel))
+          .animation({ duration: 300, curve: Curve.EaseInOut })
           .opacity(this.animStarted ? ring.opacityAnimated : ring.opacityInitial)
           .scale({ x: this.animStarted ? ring.scale : 1.0, y: this.animStarted ? ring.scale : 1.0 })
           .animation({

@@ -1,32 +1,33 @@
 /**
- * Simulates a real-time EEG data stream for testing and development.
+ * Simulates a real-time 4-channel EEG data stream for testing and development.
+ * Channels: AF7, AF8, TP9, TP10 (Muse 2/S electrode layout).
  * Provides three simulation modes: NORMAL, MODERATE, and SEIZURE.
  *
  * This is a temporary service until actual hardware (EEG wearable) is integrated.
  */
-import { SAMPLING_RATE, SAMPLE_INTERVAL_MS, SERVICE_BUFFER_SIZE } from '../constants/AppConstants';
+import {
+  SAMPLE_INTERVAL_MS, SERVICE_BUFFER_SIZE,
+  EEG_CHANNEL_COUNT
+} from '../constants/AppConstants';
 
 export interface EEGDataPoint {
   timestamp: number;
-  amplitude: number; // in micro volts (µV)
-  frequency: number; // in Hz
+  channels: number[]; // 4 channels in µV: [AF7, AF8, TP9, TP10]
 }
 
 export enum EEGSimulationMode {
-  NORMAL = 'NORMAL', // Low-amplitude, regular oscillations (~10-50 µV)
-  MODERATE = 'MODERATE', // Increased noise and anomalies (~50-100 µV)
-  SEIZURE = 'SEIZURE' // High-amplitude spikes (>200 µV)
+  NORMAL = 'NORMAL',
+  MODERATE = 'MODERATE',
+  SEIZURE = 'SEIZURE'
 }
 
-export interface EEGDataStatistics {
-  meanAmplitude: number;
-  maxAmplitude: number;
-  minAmplitude: number;
-  dataPointCount: number;
-}
+// Phase offsets per channel to simulate spatial separation between electrodes.
+// AF7/AF8 are frontal (closer together), TP9/TP10 are temporal (further apart).
+const CHANNEL_PHASE_OFFSETS: number[] = [0.0, 0.3, 0.7, 1.0];
+const CHANNEL_AMPLITUDE_SCALE: number[] = [1.0, 0.95, 1.1, 1.05];
 
 export class MockEEGService {
-  private simulationMode: EEGSimulationMode = EEGSimulationMode.MODERATE;
+  private simulationMode: EEGSimulationMode = EEGSimulationMode.NORMAL;
   private isRunning: boolean = false;
   private streamInterval: number | null = null;
   private dataBuffer: EEGDataPoint[] = [];
@@ -35,7 +36,7 @@ export class MockEEGService {
   private onModeChangedCallback: ((mode: EEGSimulationMode) => void) | null = null;
 
   constructor() {
-    console.info('[MockEEGService] Initialized');
+    console.info('[MockEEGService] Initialized (4-channel)');
   }
 
   public onDataReceived(callback: (data: EEGDataPoint) => void): void {
@@ -56,7 +57,7 @@ export class MockEEGService {
     console.info('[MockEEGService] Stream started with mode:', this.simulationMode);
 
     this.streamInterval = setInterval(() => {
-      const dataPoint = this.generateEEGDataPoint();
+      const dataPoint = this.generateMultiChannelDataPoint();
       this.dataBuffer.push(dataPoint);
 
       if (this.dataBuffer.length > SERVICE_BUFFER_SIZE) {
@@ -86,7 +87,6 @@ export class MockEEGService {
 
   public setSimulationMode(mode: EEGSimulationMode): void {
     if (this.simulationMode === mode) {
-      console.warn('[MockEEGService] Already in mode:', mode);
       return;
     }
 
@@ -106,93 +106,63 @@ export class MockEEGService {
     return [...this.dataBuffer];
   }
 
-  public getDataStatistics(): EEGDataStatistics {
-    if (this.dataBuffer.length === 0) {
-      return {
-        meanAmplitude: 0,
-        maxAmplitude: 0,
-        minAmplitude: 0,
-        dataPointCount: 0
-      };
-    }
-
-    const amplitudes = this.dataBuffer.map(d => d.amplitude);
-    const sum = amplitudes.reduce((a, b) => a + b, 0);
-    const mean = sum / amplitudes.length;
-    const max = Math.max(...amplitudes);
-    const min = Math.min(...amplitudes);
-
-    return {
-      meanAmplitude: Math.round(mean * 100) / 100,
-      maxAmplitude: Math.round(max * 100) / 100,
-      minAmplitude: Math.round(min * 100) / 100,
-      dataPointCount: this.dataBuffer.length
-    };
-  }
-
   public clearBuffer(): void {
     this.dataBuffer = [];
     console.info('[MockEEGService] Buffer cleared');
   }
 
-  private generateEEGDataPoint(): EEGDataPoint {
+  // ── Multi-channel data generation ───────────────────────────────────────
+
+  private generateMultiChannelDataPoint(): EEGDataPoint {
     const timestamp = Date.now();
+    const channels: number[] = [];
 
-    switch (this.simulationMode) {
-      case EEGSimulationMode.NORMAL:
-        return this.generateNormalEEG(timestamp);
-      case EEGSimulationMode.MODERATE:
-        return this.generateModerateEEG(timestamp);
-      case EEGSimulationMode.SEIZURE:
-        return this.generateSeizureEEG(timestamp);
-      default:
-        return this.generateNormalEEG(timestamp);
+    for (let ch = 0; ch < EEG_CHANNEL_COUNT; ch++) {
+      const phase = CHANNEL_PHASE_OFFSETS[ch];
+      const scale = CHANNEL_AMPLITUDE_SCALE[ch];
+      let value: number;
+
+      switch (this.simulationMode) {
+        case EEGSimulationMode.NORMAL:
+          value = this.generateNormalChannel(timestamp, phase, scale);
+          break;
+        case EEGSimulationMode.MODERATE:
+          value = this.generateModerateChannel(timestamp, phase, scale);
+          break;
+        case EEGSimulationMode.SEIZURE:
+          value = this.generateSeizureChannel(timestamp, phase, scale);
+          break;
+        default:
+          value = this.generateNormalChannel(timestamp, phase, scale);
+          break;
+      }
+
+      channels.push(Math.round(value * 100) / 100);
     }
+
+    return { timestamp, channels };
   }
 
-  private generateNormalEEG(timestamp: number): EEGDataPoint {
-    const alpha = 5 * Math.sin(2 * Math.PI * 10 * timestamp / 1000); // 10 Hz alpha wave
-    const beta = 3 * Math.sin(2 * Math.PI * 20 * timestamp / 1000); // 20 Hz beta wave
-    const noise = (Math.random() - 0.5) * 5; // Small noise
-
-    const amplitude = alpha + beta + noise;
-
-    return {
-      timestamp,
-      amplitude: Math.round(amplitude * 100) / 100,
-      frequency: 10
-    };
+  private generateNormalChannel(t: number, phase: number, scale: number): number {
+    const alpha = 5 * Math.sin(2 * Math.PI * 10 * t / 1000 + phase);
+    const beta = 3 * Math.sin(2 * Math.PI * 20 * t / 1000 + phase * 1.5);
+    const noise = (Math.random() - 0.5) * 5;
+    return (alpha + beta + noise) * scale;
   }
 
-  private generateModerateEEG(timestamp: number): EEGDataPoint {
-    const alpha = 90 * Math.sin(2 * Math.PI * 10 * timestamp / 1000);
-    const beta = 29 * Math.sin(2 * Math.PI * 20 * timestamp / 1000);
+  private generateModerateChannel(t: number, phase: number, scale: number): number {
+    const alpha = 20 * Math.sin(2 * Math.PI * 10 * t / 1000 + phase);
+    const beta = 29 * Math.sin(2 * Math.PI * 20 * t / 1000 + phase * 1.5);
     const noise = (Math.random() - 0.5) * 20;
-
     const spike = Math.random() > 0.95 ? 30 * Math.random() : 0;
-
-    const amplitude = alpha + beta + noise + spike;
-
-    return {
-      timestamp,
-      amplitude: Math.round(amplitude * 100) / 100,
-      frequency: 10
-    };
+    return (alpha + beta + noise + spike) * scale;
   }
 
-  private generateSeizureEEG(timestamp: number): EEGDataPoint {
-    // High-frequency, high-amplitude oscillations characteristic of seizures
-    const seizureFrequency = 25 * Math.sin(2 * Math.PI * 30 * timestamp / 1000); // 30 Hz
-    const highAmplitude = 80 * Math.sin(2 * Math.PI * 15 * timestamp / 1000); // 15 Hz with high amp
-    const spikes = Math.random() > 0.8 ? 100 * Math.random() : 0; // Frequent spikes
-
-    const amplitude = seizureFrequency + highAmplitude + spikes;
-
-    return {
-      timestamp,
-      amplitude: Math.round(Math.abs(amplitude) * 100) / 100,
-      frequency: 30
-    };
+  private generateSeizureChannel(t: number, phase: number, scale: number): number {
+    const seizure = 25 * Math.sin(2 * Math.PI * 30 * t / 1000 + phase);
+    const highAmp = 100 * Math.sin(2 * Math.PI * 15 * t / 1000 + phase * 0.8);
+    const spikes = Math.random() > 0.8 ? 100 * Math.random() : 0;
+    return Math.abs(seizure + highAmp + spikes) * scale;
   }
 
   public destroy(): void {

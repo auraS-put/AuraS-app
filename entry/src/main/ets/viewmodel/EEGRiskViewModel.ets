@@ -1,136 +1,250 @@
 
-
-// Current risk levels are based on simplified thresholds for demonstration purposes. In a real application,
-// these would be determined by AI algorithms and clinical data
-import { EEGDataPoint, EEGSimulationMode, getMockEEGService, MockEEGService } from "../services/MockEEGService";
+import { EEGDataPoint, EEGSimulationMode, getMockEEGService, MockEEGService } from '../services/MockEEGService';
+import { EEGRingBuffer } from '../services/EEGRingBuffer';
+import { EEGPreprocessor } from '../services/EEGPreprocessor';
 import {
-  ANALYSIS_WINDOW_SIZE,
-  ANOMALY_THRESHOLD_UV,
-  THRESHOLD_ORANGE_MIN_UV,
-  THRESHOLD_RED_MIN_UV,
-  THRESHOLD_RED_MAX_UV,
-  ANOMALY_RATE_ORANGE,
-  ANOMALY_RATE_RED,
-  WAVEFORM_MAX_POINTS
+  getSeizurePredictionService, SeizurePredictionService, PredictionResult
+} from '../services/SeizurePredictionService';
+import { resourceManager } from '@kit.LocalizationKit';
+import {
+  WAVEFORM_MAX_POINTS, SEIZURE_PROBABILITY_THRESHOLD, SEIZURE_PROB_ORANGE_THRESHOLD,
+  DEBUG_RAMP_UP_MS, DEBUG_HOLD_MS, DEBUG_RAMP_DOWN_MS,
+  DEBUG_GREEN_CENTER, DEBUG_ORANGE_CENTER, DEBUG_RED_CENTER
 } from '../constants/AppConstants';
 
 export enum RiskLevel {
-  GREEN = 'GREEN',    // Very low risk - normal brain activity
-  ORANGE = 'ORANGE',  // Moderate risk - potential anomalies
-  RED = 'RED'         // High risk - seizure detected
+  GREEN = 'GREEN',
+  ORANGE = 'ORANGE',
+  RED = 'RED'
 }
 
 @ObservedV2
 export class EEGMetrics {
-  @Trace currentAmplitude: number = 0;    // Latest EEG amplitude (uV)
-  @Trace meanAmplitude: number = 0;       // Mean of recent amplitudes
-  @Trace maxAmplitude: number = 0;        // Peak amplitude in analysis window
-  @Trace anomalyCount: number = 0;        // Number of anomalies detected
-  @Trace dataPointCount: number = 0;      // Total samples in analysis window
+  @Trace currentAmplitude: number = 0;
+  @Trace meanAmplitude: number = 0;
+  @Trace maxAmplitude: number = 0;
+  @Trace seizureProbability: number = 0;
+  @Trace inferenceCount: number = 0;
+  @Trace modelLoaded: boolean = false;
+  @Trace previewMode: boolean = false;
+  @Trace dataPointCount: number = 0;
 }
 
 @ObservedV2
 export class EEGRiskViewModel {
   @Trace riskLevel: RiskLevel = RiskLevel.GREEN;
-  
   @Trace metrics: EEGMetrics = new EEGMetrics();
-  
-  private recentDataBuffer: EEGDataPoint[] = [];
-  
+
   private eegService: MockEEGService;
-  
+  private preprocessor: EEGPreprocessor;
+  private ringBuffer: EEGRingBuffer;
+  private predictionService: SeizurePredictionService;
+  private recentFilteredSamples: number[] = [];
+  private readonly maxRecentSamples: number = 2048;
+
   private onRiskLevelChangedCallback: ((level: RiskLevel) => void) | null = null;
+
+  // Debug presentation scenario: ramp up → hold → ramp down
+  private debugTargetLevel: RiskLevel | null = null;
+  private debugProbCurrent: number = 0;
+  private debugStartTime: number = 0;
 
   constructor() {
     this.eegService = getMockEEGService();
+    this.preprocessor = new EEGPreprocessor();
+    this.ringBuffer = new EEGRingBuffer();
+    this.predictionService = getSeizurePredictionService();
+
     this.initializeListeners();
-    console.info('[EEGRiskViewModel] Initialized');
+    console.info('[EEGRiskViewModel] Initialized with AI pipeline');
+  }
+
+  /**
+   * Initialize the AI model. Must be called with resourceManager before startMonitoring().
+   */
+  public async initModel(resMgr: resourceManager.ResourceManager): Promise<boolean> {
+    const success = await this.predictionService.loadModel(resMgr);
+    this.metrics.modelLoaded = success;
+    this.metrics.previewMode = this.predictionService.isRunningInPreviewMode();
+    if (success) {
+      console.info('[EEGRiskViewModel] AI model ready' +
+        (this.metrics.previewMode ? ' (PREVIEW MODE)' : ' (real device)'));
+    } else {
+      console.error('[EEGRiskViewModel] AI model failed to load');
+    }
+    return success;
   }
 
   private initializeListeners(): void {
+    // Each raw sample goes through: filter → ringBuffer
     this.eegService.onDataReceived((dataPoint: EEGDataPoint) => {
       this.onEEGDataReceived(dataPoint);
     });
 
     this.eegService.onModeChanged((mode: EEGSimulationMode) => {
       console.info('[EEGRiskViewModel] EEG mode changed to:', mode);
-      this.recentDataBuffer = [];
+      this.ringBuffer.clear();
+      this.preprocessor.resetState();
+    });
+
+    // When ringBuffer has a full window (4×1024), run inference
+    this.ringBuffer.onWindowReady((window: number[][]) => {
+      this.onWindowReady(window);
     });
   }
 
   private onEEGDataReceived(dataPoint: EEGDataPoint): void {
-    this.recentDataBuffer.push(dataPoint);
+    // 1. Filter sample-by-sample (stateful IIR)
+    const filtered = this.preprocessor.filterSample(dataPoint.channels);
 
-    if (this.recentDataBuffer.length > ANALYSIS_WINDOW_SIZE) {
-      this.recentDataBuffer.shift();
+    // 2. Push filtered sample into ring buffer
+    this.ringBuffer.pushSample(filtered);
+
+    // 3. Keep recent filtered channel 0 for waveform display
+    this.recentFilteredSamples.push(filtered[0]);
+    if (this.recentFilteredSamples.length > this.maxRecentSamples) {
+      this.recentFilteredSamples = this.recentFilteredSamples.slice(-this.maxRecentSamples);
     }
 
-    this.updateMetrics();
-
-    const newRiskLevel = this.calculateRiskLevel();
-    this.setRiskLevel(newRiskLevel);
+    // 4. Update basic metrics for UI
+    this.updateMetrics(filtered);
   }
 
-  private updateMetrics(): void {
-    if (this.recentDataBuffer.length === 0) {
-      this.metrics.currentAmplitude = 0;
-      this.metrics.meanAmplitude = 0;
-      this.metrics.maxAmplitude = 0;
-      this.metrics.dataPointCount = 0;
-      this.metrics.anomalyCount = 0;
+  private async onWindowReady(window: number[][]): Promise<void> {
+    if (!this.predictionService.isModelLoaded()) {
       return;
     }
 
-    const amplitudes: number[] = this.recentDataBuffer.map((point: EEGDataPoint) => point.amplitude);
-    const sumAmplitude: number = amplitudes.reduce((sum: number, value: number) => sum + value, 0);
-    const meanAmplitude: number = sumAmplitude / amplitudes.length;
-    const maxAmplitude: number = Math.max(...amplitudes.map((value: number) => Math.abs(value)));
-
-    this.metrics.currentAmplitude = this.recentDataBuffer[this.recentDataBuffer.length - 1].amplitude;
-    this.metrics.meanAmplitude = Math.round(meanAmplitude * 100) / 100;
-    this.metrics.maxAmplitude = Math.round(maxAmplitude * 100) / 100;
-    this.metrics.dataPointCount = this.recentDataBuffer.length;
-    this.metrics.anomalyCount = this.countAnomalies();
-  }
-
-  private countAnomalies(): number {
-    return this.recentDataBuffer.filter(
-      point => Math.abs(point.amplitude) > ANOMALY_THRESHOLD_UV
-    ).length;
-  }
-
-  private calculateRiskLevel(): RiskLevel {
-    if (this.recentDataBuffer.length === 0) {
-      return RiskLevel.GREEN;
+    // Debug scenario: skip real inference, probability is time-driven
+    if (this.debugTargetLevel !== null) {
+      this.updateDebugProbability();
+      return;
     }
 
-    const meanAmplitude = this.metrics.meanAmplitude;
-    const maxAmplitude = this.metrics.maxAmplitude;
-    const anomalyRate = this.metrics.anomalyCount / this.recentDataBuffer.length;
+    // Z-score normalize the complete window
+    const normalized = this.preprocessor.normalizeWindow(window);
 
-    if (
-      meanAmplitude > THRESHOLD_RED_MIN_UV ||
-      maxAmplitude > THRESHOLD_RED_MAX_UV ||
-      anomalyRate > ANOMALY_RATE_RED
-    ) {
+    // Run AI inference
+    const result: PredictionResult | null = await this.predictionService.predict(normalized);
+
+    if (result) {
+      this.metrics.seizureProbability = Math.round(result.seizureProbability * 10000) / 10000;
+      this.metrics.inferenceCount = this.predictionService.getInferenceCount();
+      this.setRiskLevel(result.riskLevel);
+    }
+  }
+
+  /**
+   * Time-based debug probability for presentation demos.
+   * Phases: ramp up → hold at target → ramp down to green.
+   * Called from onWindowReady and getMetrics for smooth 500ms UI updates.
+   */
+  private updateDebugProbability(): void {
+    if (this.debugTargetLevel === null) {
+      return;
+    }
+
+    const elapsed = Date.now() - this.debugStartTime;
+    const greenCenter = 0.05;
+    const targetCenter = this.getDebugTargetCenter();
+    let baseProb: number;
+
+    if (elapsed < DEBUG_RAMP_UP_MS) {
+      const t = elapsed / DEBUG_RAMP_UP_MS;
+      baseProb = greenCenter + (targetCenter - greenCenter) * this.easeInOutCubic(t);
+    } else if (elapsed < DEBUG_RAMP_UP_MS + DEBUG_HOLD_MS) {
+      baseProb = targetCenter;
+    } else if (elapsed < DEBUG_RAMP_UP_MS + DEBUG_HOLD_MS + DEBUG_RAMP_DOWN_MS) {
+      const t = (elapsed - DEBUG_RAMP_UP_MS - DEBUG_HOLD_MS) / DEBUG_RAMP_DOWN_MS;
+      baseProb = targetCenter + (greenCenter - targetCenter) * this.easeInOutCubic(t);
+    } else {
+      baseProb = greenCenter;
+      this.debugStartTime = Date.now();
+    }
+
+    // Organic fluctuation from overlapping sine waves
+    const wobble = Math.sin(elapsed / 800) * 0.015
+      + Math.sin(elapsed / 1300) * 0.01
+      + Math.sin(elapsed / 3100) * 0.008;
+
+    // Smooth tracking with slight lag for natural feel
+    const target = baseProb + wobble;
+    this.debugProbCurrent += (target - this.debugProbCurrent) * 0.3;
+    this.debugProbCurrent = Math.max(0.01, Math.min(0.95, this.debugProbCurrent));
+
+    this.metrics.seizureProbability = Math.round(this.debugProbCurrent * 10000) / 10000;
+
+    // Derive risk level from current probability and update UI + waveform
+    const newLevel = this.debugProbToRiskLevel(this.debugProbCurrent);
+    if (this.riskLevel !== newLevel) {
+      this.setRiskLevel(newLevel);
+    }
+    this.syncSimulationModeForLevel(newLevel);
+  }
+
+  private getDebugTargetCenter(): number {
+    switch (this.debugTargetLevel) {
+      case RiskLevel.GREEN: return DEBUG_GREEN_CENTER;
+      case RiskLevel.ORANGE: return DEBUG_ORANGE_CENTER;
+      case RiskLevel.RED: return DEBUG_RED_CENTER;
+      default: return DEBUG_GREEN_CENTER;
+    }
+  }
+
+  private easeInOutCubic(t: number): number {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  }
+
+  private debugProbToRiskLevel(prob: number): RiskLevel {
+    if (prob >= SEIZURE_PROBABILITY_THRESHOLD) {
       return RiskLevel.RED;
     }
-
-    if (
-      meanAmplitude > THRESHOLD_ORANGE_MIN_UV ||
-      anomalyRate > ANOMALY_RATE_ORANGE
-    ) {
+    if (prob >= SEIZURE_PROB_ORANGE_THRESHOLD) {
       return RiskLevel.ORANGE;
     }
-
     return RiskLevel.GREEN;
+  }
+
+  private syncSimulationModeForLevel(level: RiskLevel): void {
+    let mode: EEGSimulationMode;
+    switch (level) {
+      case RiskLevel.GREEN: mode = EEGSimulationMode.NORMAL; break;
+      case RiskLevel.ORANGE: mode = EEGSimulationMode.MODERATE; break;
+      case RiskLevel.RED: mode = EEGSimulationMode.SEIZURE; break;
+      default: mode = EEGSimulationMode.NORMAL; break;
+    }
+    if (this.eegService.getCurrentMode() !== mode) {
+      this.eegService.setSimulationMode(mode);
+    }
+  }
+
+  private updateMetrics(filteredSample: number[]): void {
+    this.metrics.currentAmplitude = Math.round(filteredSample[0] * 100) / 100;
+    this.metrics.dataPointCount = this.ringBuffer.getSampleCount();
+
+    // Running mean/max from recent samples
+    if (this.recentFilteredSamples.length > 0) {
+      const recent = this.recentFilteredSamples;
+      const len = recent.length;
+      let sum = 0;
+      let maxAbs = 0;
+      for (let i = 0; i < len; i++) {
+        sum += recent[i];
+        const abs = Math.abs(recent[i]);
+        if (abs > maxAbs) {
+          maxAbs = abs;
+        }
+      }
+      this.metrics.meanAmplitude = Math.round((sum / len) * 100) / 100;
+      this.metrics.maxAmplitude = Math.round(maxAbs * 100) / 100;
+    }
   }
 
   private setRiskLevel(newLevel: RiskLevel): void {
     if (this.riskLevel !== newLevel) {
       const oldLevel = this.riskLevel;
       this.riskLevel = newLevel;
-      console.info(`[EEGRiskViewModel] Risk level changed: ${oldLevel} -> ${newLevel}`);
+      console.info(`[EEGRiskViewModel] Risk level: ${oldLevel} -> ${newLevel} (prob=${this.metrics.seizureProbability})`);
 
       if (this.onRiskLevelChangedCallback) {
         this.onRiskLevelChangedCallback(newLevel);
@@ -147,6 +261,9 @@ export class EEGRiskViewModel {
   }
 
   public getMetrics(): EEGMetrics {
+    if (this.debugTargetLevel !== null) {
+      this.updateDebugProbability();
+    }
     return this.metrics;
   }
 
@@ -164,37 +281,64 @@ export class EEGRiskViewModel {
     this.eegService.setSimulationMode(mode);
   }
 
+  /**
+   * Start a debug presentation scenario: probability ramps up from GREEN
+   * to the target level, holds for 60s, then ramps back down to GREEN.
+   * Pass null to cancel and return to real inference.
+   */
+  public setDebugLock(level: RiskLevel | null): void {
+    this.debugTargetLevel = level;
+    if (level !== null) {
+      this.debugProbCurrent = 0.05;
+      this.debugStartTime = Date.now();
+      this.metrics.seizureProbability = this.debugProbCurrent;
+      this.riskLevel = RiskLevel.GREEN;
+      this.eegService.setSimulationMode(EEGSimulationMode.NORMAL);
+      if (this.onRiskLevelChangedCallback) {
+        this.onRiskLevelChangedCallback(RiskLevel.GREEN);
+      }
+      console.info(`[EEGRiskViewModel] Debug scenario → ${level} (ramp ${DEBUG_RAMP_UP_MS / 1000}s + hold ${DEBUG_HOLD_MS / 1000}s + down ${DEBUG_RAMP_DOWN_MS / 1000}s)`);
+    }
+  }
+
   public getSimulationMode(): EEGSimulationMode {
     return this.eegService.getCurrentMode();
   }
 
   public getWaveformData(maxPoints: number = WAVEFORM_MAX_POINTS): number[] {
-    if (this.recentDataBuffer.length === 0) {
+    const samples = this.recentFilteredSamples;
+    if (samples.length === 0) {
       return [];
     }
-    const buffer = this.recentDataBuffer;
-    if (buffer.length <= maxPoints) {
-      return buffer.map((p: EEGDataPoint) => p.amplitude);
+    if (samples.length <= maxPoints) {
+      return [...samples];
     }
-    const step = buffer.length / maxPoints;
+    const step = samples.length / maxPoints;
     const result: number[] = [];
     for (let i = 0; i < maxPoints; i++) {
-      result.push(buffer[Math.floor(i * step)].amplitude);
+      result.push(samples[Math.floor(i * step)]);
     }
     return result;
   }
 
   public clearBuffers(): void {
-    this.recentDataBuffer = [];
+    this.ringBuffer.clear();
+    this.preprocessor.resetState();
+    this.recentFilteredSamples = [];
     this.eegService.clearBuffer();
     this.riskLevel = RiskLevel.GREEN;
-    this.updateMetrics();
+    this.metrics.seizureProbability = 0;
+    this.metrics.currentAmplitude = 0;
+    this.metrics.meanAmplitude = 0;
+    this.metrics.maxAmplitude = 0;
+    this.metrics.dataPointCount = 0;
   }
 
   public destroy(): void {
     this.stopMonitoring();
     this.onRiskLevelChangedCallback = null;
-    this.recentDataBuffer = [];
+    this.recentFilteredSamples = [];
+    this.predictionService.destroy();
     console.info('[EEGRiskViewModel] Destroyed');
   }
 }
