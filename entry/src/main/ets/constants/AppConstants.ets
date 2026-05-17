@@ -51,6 +51,15 @@ export const COLOR_ORB_CENTER: string = '#FFFFFF';
 export const WAVEFORM_UPDATE_INTERVAL_MS: number = 100;
 export const WAVEFORM_MAX_POINTS: number = 200;
 
+// ── Debug Presentation Scenario ─────────────────────────────────────────
+
+export const DEBUG_RAMP_UP_MS: number = 15000;
+export const DEBUG_HOLD_MS: number = 60000;
+export const DEBUG_RAMP_DOWN_MS: number = 15000;
+export const DEBUG_GREEN_CENTER: number = 0.12;
+export const DEBUG_ORANGE_CENTER: number = 0.38;
+export const DEBUG_RED_CENTER: number = 0.68;
+
 // ── Orb Animation ───────────────────────────────────────────────────────────
 
 export const ORB_ANIM_DURATION: number = 2000;

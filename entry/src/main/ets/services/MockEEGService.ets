@@ -27,7 +27,7 @@ const CHANNEL_PHASE_OFFSETS: number[] = [0.0, 0.3, 0.7, 1.0];
 const CHANNEL_AMPLITUDE_SCALE: number[] = [1.0, 0.95, 1.1, 1.05];
 
 export class MockEEGService {
-  private simulationMode: EEGSimulationMode = EEGSimulationMode.SEIZURE;
+  private simulationMode: EEGSimulationMode = EEGSimulationMode.NORMAL;
   private isRunning: boolean = false;
   private streamInterval: number | null = null;
   private dataBuffer: EEGDataPoint[] = [];
@@ -151,7 +151,7 @@ export class MockEEGService {
   }
 
   private generateModerateChannel(t: number, phase: number, scale: number): number {
-    const alpha = 90 * Math.sin(2 * Math.PI * 10 * t / 1000 + phase);
+    const alpha = 20 * Math.sin(2 * Math.PI * 10 * t / 1000 + phase);
     const beta = 29 * Math.sin(2 * Math.PI * 20 * t / 1000 + phase * 1.5);
     const noise = (Math.random() - 0.5) * 20;
     const spike = Math.random() > 0.95 ? 30 * Math.random() : 0;
@@ -160,7 +160,7 @@ export class MockEEGService {
 
   private generateSeizureChannel(t: number, phase: number, scale: number): number {
     const seizure = 25 * Math.sin(2 * Math.PI * 30 * t / 1000 + phase);
-    const highAmp = 80 * Math.sin(2 * Math.PI * 15 * t / 1000 + phase * 0.8);
+    const highAmp = 100 * Math.sin(2 * Math.PI * 15 * t / 1000 + phase * 0.8);
     const spikes = Math.random() > 0.8 ? 100 * Math.random() : 0;
     return Math.abs(seizure + highAmp + spikes) * scale;
   }

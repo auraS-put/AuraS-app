@@ -6,7 +6,11 @@ import {
   getSeizurePredictionService, SeizurePredictionService, PredictionResult
 } from '../services/SeizurePredictionService';
 import { resourceManager } from '@kit.LocalizationKit';
-import { WAVEFORM_MAX_POINTS } from '../constants/AppConstants';
+import {
+  WAVEFORM_MAX_POINTS, SEIZURE_PROBABILITY_THRESHOLD, SEIZURE_PROB_ORANGE_THRESHOLD,
+  DEBUG_RAMP_UP_MS, DEBUG_HOLD_MS, DEBUG_RAMP_DOWN_MS,
+  DEBUG_GREEN_CENTER, DEBUG_ORANGE_CENTER, DEBUG_RED_CENTER
+} from '../constants/AppConstants';
 
 export enum RiskLevel {
   GREEN = 'GREEN',
@@ -39,6 +43,11 @@ export class EEGRiskViewModel {
   private readonly maxRecentSamples: number = 2048;
 
   private onRiskLevelChangedCallback: ((level: RiskLevel) => void) | null = null;
+
+  // Debug presentation scenario: ramp up → hold → ramp down
+  private debugTargetLevel: RiskLevel | null = null;
+  private debugProbCurrent: number = 0;
+  private debugStartTime: number = 0;
 
   constructor() {
     this.eegService = getMockEEGService();
@@ -76,7 +85,6 @@ export class EEGRiskViewModel {
       console.info('[EEGRiskViewModel] EEG mode changed to:', mode);
       this.ringBuffer.clear();
       this.preprocessor.resetState();
-      this.recentFilteredSamples = [];
     });
 
     // When ringBuffer has a full window (4×1024), run inference
@@ -107,6 +115,12 @@ export class EEGRiskViewModel {
       return;
     }
 
+    // Debug scenario: skip real inference, probability is time-driven
+    if (this.debugTargetLevel !== null) {
+      this.updateDebugProbability();
+      return;
+    }
+
     // Z-score normalize the complete window
     const normalized = this.preprocessor.normalizeWindow(window);
 
@@ -117,6 +131,90 @@ export class EEGRiskViewModel {
       this.metrics.seizureProbability = Math.round(result.seizureProbability * 10000) / 10000;
       this.metrics.inferenceCount = this.predictionService.getInferenceCount();
       this.setRiskLevel(result.riskLevel);
+    }
+  }
+
+  /**
+   * Time-based debug probability for presentation demos.
+   * Phases: ramp up → hold at target → ramp down to green.
+   * Called from onWindowReady and getMetrics for smooth 500ms UI updates.
+   */
+  private updateDebugProbability(): void {
+    if (this.debugTargetLevel === null) {
+      return;
+    }
+
+    const elapsed = Date.now() - this.debugStartTime;
+    const greenCenter = 0.05;
+    const targetCenter = this.getDebugTargetCenter();
+    let baseProb: number;
+
+    if (elapsed < DEBUG_RAMP_UP_MS) {
+      const t = elapsed / DEBUG_RAMP_UP_MS;
+      baseProb = greenCenter + (targetCenter - greenCenter) * this.easeInOutCubic(t);
+    } else if (elapsed < DEBUG_RAMP_UP_MS + DEBUG_HOLD_MS) {
+      baseProb = targetCenter;
+    } else if (elapsed < DEBUG_RAMP_UP_MS + DEBUG_HOLD_MS + DEBUG_RAMP_DOWN_MS) {
+      const t = (elapsed - DEBUG_RAMP_UP_MS - DEBUG_HOLD_MS) / DEBUG_RAMP_DOWN_MS;
+      baseProb = targetCenter + (greenCenter - targetCenter) * this.easeInOutCubic(t);
+    } else {
+      baseProb = greenCenter;
+      this.debugStartTime = Date.now();
+    }
+
+    // Organic fluctuation from overlapping sine waves
+    const wobble = Math.sin(elapsed / 800) * 0.015
+      + Math.sin(elapsed / 1300) * 0.01
+      + Math.sin(elapsed / 3100) * 0.008;
+
+    // Smooth tracking with slight lag for natural feel
+    const target = baseProb + wobble;
+    this.debugProbCurrent += (target - this.debugProbCurrent) * 0.3;
+    this.debugProbCurrent = Math.max(0.01, Math.min(0.95, this.debugProbCurrent));
+
+    this.metrics.seizureProbability = Math.round(this.debugProbCurrent * 10000) / 10000;
+
+    // Derive risk level from current probability and update UI + waveform
+    const newLevel = this.debugProbToRiskLevel(this.debugProbCurrent);
+    if (this.riskLevel !== newLevel) {
+      this.setRiskLevel(newLevel);
+    }
+    this.syncSimulationModeForLevel(newLevel);
+  }
+
+  private getDebugTargetCenter(): number {
+    switch (this.debugTargetLevel) {
+      case RiskLevel.GREEN: return DEBUG_GREEN_CENTER;
+      case RiskLevel.ORANGE: return DEBUG_ORANGE_CENTER;
+      case RiskLevel.RED: return DEBUG_RED_CENTER;
+      default: return DEBUG_GREEN_CENTER;
+    }
+  }
+
+  private easeInOutCubic(t: number): number {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  }
+
+  private debugProbToRiskLevel(prob: number): RiskLevel {
+    if (prob >= SEIZURE_PROBABILITY_THRESHOLD) {
+      return RiskLevel.RED;
+    }
+    if (prob >= SEIZURE_PROB_ORANGE_THRESHOLD) {
+      return RiskLevel.ORANGE;
+    }
+    return RiskLevel.GREEN;
+  }
+
+  private syncSimulationModeForLevel(level: RiskLevel): void {
+    let mode: EEGSimulationMode;
+    switch (level) {
+      case RiskLevel.GREEN: mode = EEGSimulationMode.NORMAL; break;
+      case RiskLevel.ORANGE: mode = EEGSimulationMode.MODERATE; break;
+      case RiskLevel.RED: mode = EEGSimulationMode.SEIZURE; break;
+      default: mode = EEGSimulationMode.NORMAL; break;
+    }
+    if (this.eegService.getCurrentMode() !== mode) {
+      this.eegService.setSimulationMode(mode);
     }
   }
 
@@ -163,6 +261,9 @@ export class EEGRiskViewModel {
   }
 
   public getMetrics(): EEGMetrics {
+    if (this.debugTargetLevel !== null) {
+      this.updateDebugProbability();
+    }
     return this.metrics;
   }
 
@@ -178,6 +279,26 @@ export class EEGRiskViewModel {
 
   public setSimulationMode(mode: EEGSimulationMode): void {
     this.eegService.setSimulationMode(mode);
+  }
+
+  /**
+   * Start a debug presentation scenario: probability ramps up from GREEN
+   * to the target level, holds for 60s, then ramps back down to GREEN.
+   * Pass null to cancel and return to real inference.
+   */
+  public setDebugLock(level: RiskLevel | null): void {
+    this.debugTargetLevel = level;
+    if (level !== null) {
+      this.debugProbCurrent = 0.05;
+      this.debugStartTime = Date.now();
+      this.metrics.seizureProbability = this.debugProbCurrent;
+      this.riskLevel = RiskLevel.GREEN;
+      this.eegService.setSimulationMode(EEGSimulationMode.NORMAL);
+      if (this.onRiskLevelChangedCallback) {
+        this.onRiskLevelChangedCallback(RiskLevel.GREEN);
+      }
+      console.info(`[EEGRiskViewModel] Debug scenario → ${level} (ramp ${DEBUG_RAMP_UP_MS / 1000}s + hold ${DEBUG_HOLD_MS / 1000}s + down ${DEBUG_RAMP_DOWN_MS / 1000}s)`);
+    }
   }
 
   public getSimulationMode(): EEGSimulationMode {

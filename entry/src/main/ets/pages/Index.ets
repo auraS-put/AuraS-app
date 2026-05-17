@@ -1,6 +1,5 @@
 import { EEGRiskViewModel, EEGMetrics, getEEGRiskViewModel, RiskLevel } from '../viewmodel/EEGRiskViewModel';
-import { getStatusText, riskLevelToSimulationMode } from '../utils/RiskLevelUtils';
-import { getGlowColor } from '../utils/RiskLevelUtils';
+import { getStatusText, getGlowColor } from '../utils/RiskLevelUtils';
 import {
   COLOR_BACKGROUND, COLOR_TITLE, COLOR_STATUS_TEXT,
   WAVEFORM_UPDATE_INTERVAL_MS, WAVEFORM_MAX_POINTS,
@@ -10,7 +9,7 @@ import { GlowingOrb } from '../components/GlowingOrb';
 import { SafetyConfirmation } from '../components/SafetyConfirmation';
 import { EEGWaveformChart } from '../components/EEGWaveformChart';
 
-const DEBUG_FORCE_EEG_STATE: RiskLevel | null = null;
+const DEBUG_FORCE_EEG_STATE: RiskLevel | null = RiskLevel.ORANGE;
 
 @Entry
 @ComponentV2
@@ -77,7 +76,7 @@ struct Index {
     if (DEBUG_FORCE_EEG_STATE === null) {
       return;
     }
-    this.viewModel.setSimulationMode(riskLevelToSimulationMode(DEBUG_FORCE_EEG_STATE));
+    this.viewModel.setDebugLock(DEBUG_FORCE_EEG_STATE);
     this.viewModel.clearBuffers();
   }
 
