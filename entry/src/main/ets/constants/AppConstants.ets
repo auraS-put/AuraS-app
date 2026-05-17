@@ -60,6 +60,18 @@ export const DEBUG_GREEN_CENTER: number = 0.12;
 export const DEBUG_ORANGE_CENTER: number = 0.38;
 export const DEBUG_RED_CENTER: number = 0.68;
 
+// ── Safety & Notifications ───────────────────────────────────────────────────
+
+export const SAFETY_CONFIRM_TIMEOUT_MS: number = 25000;
+export const NOTIFICATION_COOLDOWN_MS: number = 30000;
+export const NOTIFICATION_CHANNEL_ID: string = 'auras_risk_alert';
+export const NOTIFICATION_CHANNEL_NAME: string = 'Risk Alerts';
+export const EMERGENCY_SMS_PREFIX: string = '[AuraS ALERT]';
+export const EMERGENCY_CONTACTS_STORE_NAME: string = 'emergency_contacts';
+export const LOCATION_TIMEOUT_MS: number = 10000;
+export const NOTIFICATION_ID_MODERATE = 1001;
+export const NOTIFICATION_ID_HIGH = 1002;
+
 // ── Orb Animation ───────────────────────────────────────────────────────────
 
 export const ORB_ANIM_DURATION: number = 2000;
