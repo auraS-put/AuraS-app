@@ -8,8 +8,16 @@ import {
 import { GlowingOrb } from '../components/GlowingOrb';
 import { SafetyConfirmation } from '../components/SafetyConfirmation';
 import { EEGWaveformChart } from '../components/EEGWaveformChart';
+import { getLocationService } from '../services/LocationService';
+import { getEmergencySMSService } from '../services/EmergencySMSService';
+import { initEmergencyContactStore } from '../services/EmergencyContactStore';
+import { common } from '@kit.AbilityKit';
+import { router } from '@kit.ArkUI';
+import { Logger } from '../utils/Logger';
 
-const DEBUG_FORCE_EEG_STATE: RiskLevel | null = RiskLevel.ORANGE;
+const log = new Logger('Index');
+
+const DEBUG_FORCE_EEG_STATE: RiskLevel | null = RiskLevel.RED;
 
 @Entry
 @ComponentV2
@@ -25,6 +33,15 @@ struct Index {
   private metricsTimer: number | null = null;
 
   aboutToAppear(): void {
+    // Initialize services that need Context
+    const context = getContext(this) as common.UIAbilityContext;
+    initEmergencyContactStore(context);
+    getLocationService().setContext(context);
+    getEmergencySMSService().setContext(context);
+
+    // Proactively request location permission
+    getLocationService().getCurrentLocation();
+
     this.riskLevel = this.viewModel.getRiskLevel();
     this.viewModel.onRiskLevelChanged((level: RiskLevel) => {
       this.riskLevel = level;
@@ -32,12 +49,12 @@ struct Index {
     this.applyDebugStateOverride();
 
     // Initialize AI model, then start EEG monitoring
-    const resMgr = getContext(this).resourceManager;
+    const resMgr = context.resourceManager;
     this.viewModel.initModel(resMgr).then((success: boolean) => {
       if (success) {
-        console.info('[Index] AI model loaded — starting monitoring');
+        log.info('AI model loaded — starting monitoring');
       } else {
-        console.error('[Index] AI model failed — monitoring with fallback');
+        log.error('AI model failed — monitoring with fallback');
       }
       this.viewModel.startMonitoring();
     });
@@ -82,7 +99,7 @@ struct Index {
 
   build() {
     Column() {
-      // App title + AI status
+      // App title + AI status + contacts button
       Row() {
         Text('auras')
           .fontSize(16)
@@ -100,6 +117,14 @@ struct Index {
             .fontSize(10)
             .fontColor(this.modelLoaded ? (this.previewMode ? '#E8A844' : '#44E88C') : '#555577')
         }
+
+        Text('☰')
+          .fontSize(20)
+          .fontColor(COLOR_TITLE)
+          .margin({ left: 12 })
+          .onClick(() => {
+            router.pushUrl({ url: 'pages/EmergencyContactsPage' });
+          })
       }
       .width('100%')
       .padding({ left: 24, right: 24 })
@@ -132,7 +157,14 @@ struct Index {
       }
 
       if (this.riskLevel === RiskLevel.RED) {
-        SafetyConfirmation()
+        SafetyConfirmation({
+          timerActive: this.viewModel.safetyTimerActive,
+          timerRemaining: this.viewModel.safetyTimerRemaining,
+          smsSent: this.viewModel.smsSent,
+          onSafeConfirmed: () => {
+            this.viewModel.confirmSafety();
+          }
+        })
       }
 
       // Spacer
