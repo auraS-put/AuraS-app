@@ -53,6 +53,8 @@ export const COLOR_STATUS_TEXT: string = '#FFFFFF';
 export const COLOR_TIME_LABEL: string = '#555577';
 export const COLOR_SAFE_BUTTON: string = '#1A8A7E';
 export const COLOR_ORB_CENTER: string = '#FFFFFF';
+export const COLOR_BUTTON_DISABLED: string = '#333344';
+export const COLOR_TEXT_DISABLED: string = '#666688';
 
 // ── Waveform ────────────────────────────────────────────────────────────────
 

@@ -276,6 +276,8 @@ export class EEGRiskViewModel {
       notificationService.notifyModerate();
     } else {
       this.cancelSafetyTimer();
+      this.smsSent = false;
+      this.smsOnDemand = false;
       notificationService.cancelAll();
     }
   }
@@ -312,7 +314,7 @@ export class EEGRiskViewModel {
     this.safetyTimerRemaining = 0;
   }
 
-  private onSafetyTimeout(): void {
+  private async onSafetyTimeout(): Promise<void> {
     log.warn('Safety not confirmed — triggering emergency SMS');
     this.safetyTimerActive = false;
     this.safetyTimerRemaining = 0;
@@ -324,10 +326,10 @@ export class EEGRiskViewModel {
       this.safetyCountdownId = null;
     }
 
-    getEmergencySMSService().sendEmergencySMS(this.riskLevel, this.smsOnDemand);
+    await getEmergencySMSService().sendEmergencySMS(this.riskLevel, this.smsOnDemand);
   }
 
-  public sendCaregiverSmsOnDemand(): void {
+  public async sendCaregiverSmsOnDemand(): Promise<void> {
     log.warn('triggering emergency SMS via user demand');
     this.safetyTimerActive = false;
     this.safetyTimerRemaining = 0;
@@ -338,8 +340,8 @@ export class EEGRiskViewModel {
       this.safetyCountdownId = null;
     }
 
-    getEmergencySMSService().sendEmergencySMS(this.riskLevel, this.smsOnDemand);
-}
+    await getEmergencySMSService().sendEmergencySMS(this.riskLevel, this.smsOnDemand);
+  }
 
   public confirmSafety(): void {
     this.cancelSafetyTimer();

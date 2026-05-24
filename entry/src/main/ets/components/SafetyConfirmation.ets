@@ -24,29 +24,29 @@ export struct SafetyConfirmation {
           .margin({ bottom: 12 })
       }
 
-      Button("I'm Safe")
-        .type(ButtonType.Capsule)
-        .fontSize(16)
-        .fontWeight(FontWeight.Bold)
-        .width('70%')
-        .height(48)
-        .backgroundColor(COLOR_SAFE_BUTTON)
-        .fontColor(COLOR_STATUS_TEXT)
-        .margin({ top: 20 })
-        .onClick(() => {
-          this.isSafeConfirmed = true;
-          this.onSafeConfirmed();
-        })
+      if (!this.smsSent) {
+        Button("I'm Safe")
+          .type(ButtonType.Capsule)
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .width('70%')
+          .height(48)
+          .backgroundColor(COLOR_SAFE_BUTTON)
+          .fontColor(COLOR_STATUS_TEXT)
+          .margin({ top: 20 })
+          .onClick(() => {
+            this.isSafeConfirmed = true;
+            this.onSafeConfirmed();
+          })
 
-      if (this.isSafeConfirmed) {
-        Text('Safety confirmation recorded')
-          .fontSize(13)
-          .fontColor(COLOR_SAFE_BUTTON)
-          .fontWeight(FontWeight.Medium)
-          .margin({ top: 8 })
-      }
-
-      if (this.smsSent) {
+        if (this.isSafeConfirmed) {
+          Text('Safety confirmation recorded')
+            .fontSize(13)
+            .fontColor(COLOR_SAFE_BUTTON)
+            .fontWeight(FontWeight.Medium)
+            .margin({ top: 8 })
+        }
+      } else {
         Text('Emergency SMS has been triggered')
           .fontSize(13)
           .fontColor(COLOR_RISK_RED)
