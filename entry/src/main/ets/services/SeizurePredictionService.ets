@@ -19,7 +19,7 @@ import {
   SEIZURE_PROBABILITY_THRESHOLD,
   SEIZURE_PROB_ORANGE_THRESHOLD
 } from '../constants/AppConstants';
-import { RiskLevel } from '../viewmodel/EEGRiskViewModel';
+import { RiskLevel } from '../constants/AppConstants';
 
 export interface PredictionResult {
   seizureProbability: number;

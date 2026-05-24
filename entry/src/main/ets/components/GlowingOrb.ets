@@ -1,4 +1,4 @@
-import { RiskLevel } from '../viewmodel/EEGRiskViewModel';
+import { RiskLevel } from '../constants/AppConstants';
 import { getGlowColor } from '../utils/RiskLevelUtils';
 import {
   ORB_RINGS, OrbRingConfig, ORB_ANIM_DURATION,

@@ -1,7 +1,7 @@
 /**
  * Presentation helpers for RiskLevel — colors, status text, mapping to simulation modes.
  */
-import { RiskLevel } from '../viewmodel/EEGRiskViewModel';
+import { RiskLevel } from '../constants/AppConstants';
 import { EEGSimulationMode } from '../services/MockEEGService';
 import { COLOR_RISK_GREEN, COLOR_RISK_ORANGE, COLOR_RISK_RED } from '../constants/AppConstants';
 

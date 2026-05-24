@@ -31,6 +31,14 @@ export const BANDPASS_LOW_HZ: number = 0.5;
 export const BANDPASS_HIGH_HZ: number = 45;
 export const FILTER_ORDER: number = 2;
 
+// ── Risk Level ───────────────────────────────────────────────────────────
+
+export enum RiskLevel {
+  GREEN = 'GREEN',
+  ORANGE = 'ORANGE',
+  RED = 'RED'
+}
+
 // ── Risk Level Colors ───────────────────────────────────────────────────────
 
 export const COLOR_RISK_GREEN: string = '#44E88C';

@@ -1,4 +1,5 @@
-import { EEGRiskViewModel, EEGMetrics, getEEGRiskViewModel, RiskLevel } from '../viewmodel/EEGRiskViewModel';
+import { EEGRiskViewModel, EEGMetrics, getEEGRiskViewModel } from '../viewmodel/EEGRiskViewModel';
+import { RiskLevel } from '../constants/AppConstants';
 import { getStatusText, getGlowColor } from '../utils/RiskLevelUtils';
 import {
   COLOR_BACKGROUND, COLOR_TITLE, COLOR_STATUS_TEXT,

@@ -13,16 +13,11 @@ import {
   WAVEFORM_MAX_POINTS, SEIZURE_PROBABILITY_THRESHOLD, SEIZURE_PROB_ORANGE_THRESHOLD,
   SAFETY_CONFIRM_TIMEOUT_MS,
   DEBUG_RAMP_UP_MS, DEBUG_HOLD_MS, DEBUG_RAMP_DOWN_MS,
-  DEBUG_GREEN_CENTER, DEBUG_ORANGE_CENTER, DEBUG_RED_CENTER
+  DEBUG_GREEN_CENTER, DEBUG_ORANGE_CENTER, DEBUG_RED_CENTER,
+  RiskLevel
 } from '../constants/AppConstants';
 
 const log = new Logger('EEGRiskViewModel');
-
-export enum RiskLevel {
-  GREEN = 'GREEN',
-  ORANGE = 'ORANGE',
-  RED = 'RED'
-}
 
 @ObservedV2
 export class EEGMetrics {
@@ -42,7 +37,7 @@ export class EEGRiskViewModel {
   @Trace metrics: EEGMetrics = new EEGMetrics();
   @Trace safetyTimerActive: boolean = false;
   @Trace safetyTimerRemaining: number = 0;
-  @Trace smsSent: boolean = false;
+  @Trace smsSent: boolean = false;  
 
   private eegService: MockEEGService;
   private preprocessor: EEGPreprocessor;
@@ -50,6 +45,7 @@ export class EEGRiskViewModel {
   private predictionService: SeizurePredictionService;
   private recentFilteredSamples: number[] = [];
   private readonly maxRecentSamples: number = 2048;
+  private smsOnDemand: boolean = false;
 
   private onRiskLevelChangedCallback: ((level: RiskLevel) => void) | null = null;
 
@@ -321,14 +317,29 @@ export class EEGRiskViewModel {
     this.safetyTimerActive = false;
     this.safetyTimerRemaining = 0;
     this.smsSent = true;
+    this.smsOnDemand = false;
 
     if (this.safetyCountdownId !== null) {
       clearInterval(this.safetyCountdownId);
       this.safetyCountdownId = null;
     }
 
-    getEmergencySMSService().sendEmergencySMS();
+    getEmergencySMSService().sendEmergencySMS(this.riskLevel, this.smsOnDemand);
   }
+
+  public sendCaregiverSmsOnDemand(): void {
+    log.warn('triggering emergency SMS via user demand');
+    this.safetyTimerActive = false;
+    this.safetyTimerRemaining = 0;
+    this.smsSent = true;
+    this.smsOnDemand = true;
+    if (this.safetyCountdownId !== null) {
+      clearInterval(this.safetyCountdownId);
+      this.safetyCountdownId = null;
+    }
+
+    getEmergencySMSService().sendEmergencySMS(this.riskLevel, this.smsOnDemand);
+}
 
   public confirmSafety(): void {
     this.cancelSafetyTimer();
