@@ -1,0 +1,54 @@
+{
+    module: {
+        name: "wearable",
+        type: "entry",
+        description: "$string:module_desc",
+        mainElement: "WearableAbility",
+        deviceTypes: ["wearable"],
+        deliveryWithInstall: true,
+        installationFree: false,
+        pages: "$profile:main_pages",
+        abilities: [
+            {
+                name: "WearableAbility",
+                srcEntry: "./ets/entryability/WearableAbility.ets",
+                description: "$string:WearableAbility_desc",
+                icon: "$media:layered_image",
+                label: "$string:WearableAbility_label",
+                startWindowIcon: "$media:startIcon",
+                startWindowBackground: "$color:start_window_background",
+                exported: true,
+                skills: [
+                    {
+                        entities: ["entity.system.home"],
+                        actions: ["ohos.want.action.home"],
+                    },
+                ],
+            },
+        ],
+        extensionAbilities: [
+            {
+                name: "EntryBackupAbility",
+                srcEntry: "./ets/entrybackupability/EntryBackupAbility.ets",
+                type: "backup",
+                exported: false,
+                metadata: [
+                    {
+                        name: "ohos.extension.backup",
+                        resource: "$profile:backup_config",
+                    },
+                ],
+            },
+        ],
+        requestPermissions: [
+            {
+                name: "ohos.permission.APPROXIMATELY_LOCATION",
+                reason: "$string:location_permission_reason",
+                usedScene: {
+                    abilities: ["WearableAbility"],
+                    when: "inuse",
+                },
+            },
+        ],
+    },
+}
