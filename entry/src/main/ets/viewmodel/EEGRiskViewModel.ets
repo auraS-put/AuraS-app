@@ -5,18 +5,19 @@ import { EEGPreprocessor } from '../services/EEGPreprocessor';
 import {
   getSeizurePredictionService, SeizurePredictionService, PredictionResult
 } from '../services/SeizurePredictionService';
+import { getNotificationService } from '../services/NotificationService';
+import { getEmergencySMSService } from '../services/EmergencySMSService';
 import { resourceManager } from '@kit.LocalizationKit';
+import { Logger } from '../utils/Logger';
 import {
   WAVEFORM_MAX_POINTS, SEIZURE_PROBABILITY_THRESHOLD, SEIZURE_PROB_ORANGE_THRESHOLD,
+  SAFETY_CONFIRM_TIMEOUT_MS,
   DEBUG_RAMP_UP_MS, DEBUG_HOLD_MS, DEBUG_RAMP_DOWN_MS,
-  DEBUG_GREEN_CENTER, DEBUG_ORANGE_CENTER, DEBUG_RED_CENTER
+  DEBUG_GREEN_CENTER, DEBUG_ORANGE_CENTER, DEBUG_RED_CENTER,
+  RiskLevel
 } from '../constants/AppConstants';
 
-export enum RiskLevel {
-  GREEN = 'GREEN',
-  ORANGE = 'ORANGE',
-  RED = 'RED'
-}
+const log = new Logger('EEGRiskViewModel');
 
 @ObservedV2
 export class EEGMetrics {
@@ -34,6 +35,9 @@ export class EEGMetrics {
 export class EEGRiskViewModel {
   @Trace riskLevel: RiskLevel = RiskLevel.GREEN;
   @Trace metrics: EEGMetrics = new EEGMetrics();
+  @Trace safetyTimerActive: boolean = false;
+  @Trace safetyTimerRemaining: number = 0;
+  @Trace smsSent: boolean = false;  
 
   private eegService: MockEEGService;
   private preprocessor: EEGPreprocessor;
@@ -41,8 +45,14 @@ export class EEGRiskViewModel {
   private predictionService: SeizurePredictionService;
   private recentFilteredSamples: number[] = [];
   private readonly maxRecentSamples: number = 2048;
+  private smsOnDemand: boolean = false;
 
   private onRiskLevelChangedCallback: ((level: RiskLevel) => void) | null = null;
+
+  // Safety timer
+  private safetyTimerId: number | null = null;
+  private safetyCountdownId: number | null = null;
+  private safetyTimerStartTime: number = 0;
 
   // Debug presentation scenario: ramp up → hold → ramp down
   private debugTargetLevel: RiskLevel | null = null;
@@ -56,7 +66,7 @@ export class EEGRiskViewModel {
     this.predictionService = getSeizurePredictionService();
 
     this.initializeListeners();
-    console.info('[EEGRiskViewModel] Initialized with AI pipeline');
+    log.info('Initialized with AI pipeline');
   }
 
   /**
@@ -67,10 +77,10 @@ export class EEGRiskViewModel {
     this.metrics.modelLoaded = success;
     this.metrics.previewMode = this.predictionService.isRunningInPreviewMode();
     if (success) {
-      console.info('[EEGRiskViewModel] AI model ready' +
+      log.info('AI model ready' +
         (this.metrics.previewMode ? ' (PREVIEW MODE)' : ' (real device)'));
     } else {
-      console.error('[EEGRiskViewModel] AI model failed to load');
+      log.error('AI model failed to load');
     }
     return success;
   }
@@ -82,7 +92,7 @@ export class EEGRiskViewModel {
     });
 
     this.eegService.onModeChanged((mode: EEGSimulationMode) => {
-      console.info('[EEGRiskViewModel] EEG mode changed to:', mode);
+      log.info('EEG mode changed to:', mode);
       this.ringBuffer.clear();
       this.preprocessor.resetState();
     });
@@ -244,12 +254,100 @@ export class EEGRiskViewModel {
     if (this.riskLevel !== newLevel) {
       const oldLevel = this.riskLevel;
       this.riskLevel = newLevel;
-      console.info(`[EEGRiskViewModel] Risk level: ${oldLevel} -> ${newLevel} (prob=${this.metrics.seizureProbability})`);
+      log.info(`Risk level: ${oldLevel} -> ${newLevel} (prob=${this.metrics.seizureProbability})`);
+
+      this.handleRiskLevelTransition(oldLevel, newLevel);
 
       if (this.onRiskLevelChangedCallback) {
         this.onRiskLevelChangedCallback(newLevel);
       }
     }
+  }
+
+  private handleRiskLevelTransition(_oldLevel: RiskLevel, newLevel: RiskLevel): void {
+    const notificationService = getNotificationService();
+
+    if (newLevel === RiskLevel.RED) {
+      notificationService.resetCooldown();
+      notificationService.notifyHigh();
+      this.startSafetyTimer();
+    } else if (newLevel === RiskLevel.ORANGE) {
+      this.cancelSafetyTimer();
+      notificationService.notifyModerate();
+    } else {
+      this.cancelSafetyTimer();
+      this.smsSent = false;
+      this.smsOnDemand = false;
+      notificationService.cancelAll();
+    }
+  }
+
+  private startSafetyTimer(): void {
+    this.cancelSafetyTimer();
+    this.safetyTimerActive = true;
+    this.smsSent = false;
+    this.safetyTimerStartTime = Date.now();
+    this.safetyTimerRemaining = SAFETY_CONFIRM_TIMEOUT_MS;
+
+    this.safetyCountdownId = setInterval(() => {
+      const elapsed = Date.now() - this.safetyTimerStartTime;
+      this.safetyTimerRemaining = Math.max(0, SAFETY_CONFIRM_TIMEOUT_MS - elapsed);
+    }, 1000);
+
+    this.safetyTimerId = setTimeout(() => {
+      this.onSafetyTimeout();
+    }, SAFETY_CONFIRM_TIMEOUT_MS);
+
+    log.info(`Safety timer started (${SAFETY_CONFIRM_TIMEOUT_MS / 1000}s)`);
+  }
+
+  private cancelSafetyTimer(): void {
+    if (this.safetyTimerId !== null) {
+      clearTimeout(this.safetyTimerId);
+      this.safetyTimerId = null;
+    }
+    if (this.safetyCountdownId !== null) {
+      clearInterval(this.safetyCountdownId);
+      this.safetyCountdownId = null;
+    }
+    this.safetyTimerActive = false;
+    this.safetyTimerRemaining = 0;
+  }
+
+  private async onSafetyTimeout(): Promise<void> {
+    log.warn('Safety not confirmed — triggering emergency SMS');
+    this.safetyTimerActive = false;
+    this.safetyTimerRemaining = 0;
+    this.smsSent = true;
+    this.smsOnDemand = false;
+
+    if (this.safetyCountdownId !== null) {
+      clearInterval(this.safetyCountdownId);
+      this.safetyCountdownId = null;
+    }
+
+    await getEmergencySMSService().sendEmergencySMS(this.riskLevel, this.smsOnDemand);
+  }
+
+  public async sendCaregiverSmsOnDemand(): Promise<void> {
+    log.warn('triggering emergency SMS via user demand');
+    this.safetyTimerActive = false;
+    this.safetyTimerRemaining = 0;
+    this.smsSent = true;
+    this.smsOnDemand = true;
+    if (this.safetyCountdownId !== null) {
+      clearInterval(this.safetyCountdownId);
+      this.safetyCountdownId = null;
+    }
+
+    await getEmergencySMSService().sendEmergencySMS(this.riskLevel, this.smsOnDemand);
+  }
+
+  public confirmSafety(): void {
+    this.cancelSafetyTimer();
+    this.smsSent = false;
+    getNotificationService().cancelAll();
+    log.info('Safety confirmed by user');
   }
 
   public onRiskLevelChanged(callback: (level: RiskLevel) => void): void {
@@ -269,12 +367,12 @@ export class EEGRiskViewModel {
 
   public startMonitoring(): void {
     this.eegService.startStream();
-    console.info('[EEGRiskViewModel] Monitoring started');
+    log.info('Monitoring started');
   }
 
   public stopMonitoring(): void {
     this.eegService.stopStream();
-    console.info('[EEGRiskViewModel] Monitoring stopped');
+    log.info('Monitoring stopped');
   }
 
   public setSimulationMode(mode: EEGSimulationMode): void {
@@ -297,7 +395,7 @@ export class EEGRiskViewModel {
       if (this.onRiskLevelChangedCallback) {
         this.onRiskLevelChangedCallback(RiskLevel.GREEN);
       }
-      console.info(`[EEGRiskViewModel] Debug scenario → ${level} (ramp ${DEBUG_RAMP_UP_MS / 1000}s + hold ${DEBUG_HOLD_MS / 1000}s + down ${DEBUG_RAMP_DOWN_MS / 1000}s)`);
+      log.info(`Debug scenario → ${level} (ramp ${DEBUG_RAMP_UP_MS / 1000}s + hold ${DEBUG_HOLD_MS / 1000}s + down ${DEBUG_RAMP_DOWN_MS / 1000}s)`);
     }
   }
 
@@ -336,10 +434,11 @@ export class EEGRiskViewModel {
 
   public destroy(): void {
     this.stopMonitoring();
+    this.cancelSafetyTimer();
     this.onRiskLevelChangedCallback = null;
     this.recentFilteredSamples = [];
     this.predictionService.destroy();
-    console.info('[EEGRiskViewModel] Destroyed');
+    log.info('Destroyed');
   }
 }
 

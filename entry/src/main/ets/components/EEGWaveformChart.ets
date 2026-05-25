@@ -1,4 +1,4 @@
-import { RiskLevel } from '../viewmodel/EEGRiskViewModel';
+import { RiskLevel } from '../constants/AppConstants';
 import { getGlowColor, formatTimeLabel } from '../utils/RiskLevelUtils';
 import { COLOR_TIME_LABEL } from '../constants/AppConstants';
 

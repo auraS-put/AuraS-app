@@ -31,6 +31,14 @@ export const BANDPASS_LOW_HZ: number = 0.5;
 export const BANDPASS_HIGH_HZ: number = 45;
 export const FILTER_ORDER: number = 2;
 
+// ── Risk Level ───────────────────────────────────────────────────────────
+
+export enum RiskLevel {
+  GREEN = 'GREEN',
+  ORANGE = 'ORANGE',
+  RED = 'RED'
+}
+
 // ── Risk Level Colors ───────────────────────────────────────────────────────
 
 export const COLOR_RISK_GREEN: string = '#44E88C';
@@ -45,6 +53,8 @@ export const COLOR_STATUS_TEXT: string = '#FFFFFF';
 export const COLOR_TIME_LABEL: string = '#555577';
 export const COLOR_SAFE_BUTTON: string = '#1A8A7E';
 export const COLOR_ORB_CENTER: string = '#FFFFFF';
+export const COLOR_BUTTON_DISABLED: string = '#333344';
+export const COLOR_TEXT_DISABLED: string = '#666688';
 
 // ── Waveform ────────────────────────────────────────────────────────────────
 
@@ -59,6 +69,18 @@ export const DEBUG_RAMP_DOWN_MS: number = 15000;
 export const DEBUG_GREEN_CENTER: number = 0.12;
 export const DEBUG_ORANGE_CENTER: number = 0.38;
 export const DEBUG_RED_CENTER: number = 0.68;
+
+// ── Safety & Notifications ───────────────────────────────────────────────────
+
+export const SAFETY_CONFIRM_TIMEOUT_MS: number = 25000;
+export const NOTIFICATION_COOLDOWN_MS: number = 30000;
+export const NOTIFICATION_CHANNEL_ID: string = 'auras_risk_alert';
+export const NOTIFICATION_CHANNEL_NAME: string = 'Risk Alerts';
+export const EMERGENCY_SMS_PREFIX: string = '[AuraS ALERT]';
+export const EMERGENCY_CONTACTS_STORE_NAME: string = 'emergency_contacts';
+export const LOCATION_TIMEOUT_MS: number = 10000;
+export const NOTIFICATION_ID_MODERATE = 1001;
+export const NOTIFICATION_ID_HIGH = 1002;
 
 // ── Orb Animation ───────────────────────────────────────────────────────────
 
