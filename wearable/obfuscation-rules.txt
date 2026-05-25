@@ -1,0 +1,3 @@
+# AuraS Wearable Obfuscation Rules
+-enable-property-obfuscation
+-enable-toplevel-obfuscation
