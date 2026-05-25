@@ -1,0 +1,9 @@
+{
+    name: "wearable",
+    version: "1.0.0",
+    description: "AuraS wearable HAP for Huawei Watch.",
+    main: "",
+    author: "",
+    license: "",
+    dependencies: {},
+}
