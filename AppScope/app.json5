@@ -1,7 +1,7 @@
 {
   "app": {
-    "bundleName": "com.example.auras",
-    "vendor": "example",
+    "bundleName": "io.auraseeg.app",
+    "vendor": "auras",
     "versionCode": 1000000,
     "versionName": "1.0.0",
     "icon": "$media:layered_image",

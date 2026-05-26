@@ -63,7 +63,7 @@ export const WAVEFORM_MAX_POINTS: number = 200;
 
 // ── Debug Presentation Scenario ─────────────────────────────────────────
 
-export const DEBUG_RAMP_UP_MS: number = 15000;
+export const DEBUG_RAMP_UP_MS: number = 25000;
 export const DEBUG_HOLD_MS: number = 60000;
 export const DEBUG_RAMP_DOWN_MS: number = 15000;
 export const DEBUG_GREEN_CENTER: number = 0.12;
