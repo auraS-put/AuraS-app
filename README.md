@@ -1,8 +1,8 @@
 # AuraS - On-Device Epileptic Seizure Prediction
 
-![auras screen](image.png)
+<img src="image.png" alt="auras screen" width="320"/>
+<img src="image-1.png" alt="auras smartwatch" width="320"/>
 
-![auras smartwatch](image-1.png)
 AuraS is a HarmonyOS application that predicts epileptic seizures in real time using wearable EEG - entirely on-device, no cloud required.
 
 The app continuously reads 4-channel EEG data (AF7, AF8, TP9, TP10) from a wearable headset at 256 Hz, preprocesses the signal, and runs inference every ~1 second using a lightweight CNN model (UltraLightCNN, 19 KB) via **MindSpore Lite**. When the risk of an upcoming seizure is elevated, the user and their emergency contacts are automatically alerted via SMS with the current GPS location.
